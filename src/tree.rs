@@ -15,6 +15,7 @@ pub struct Node {
     pub position: (f32, f32),
     pub start_position: (f32, f32),    // Start point of the node (for the line to the parent)
     pub end_position: (f32, f32),  
+    pub is_hash: bool
 }
 
 #[derive(Component)]
@@ -157,7 +158,7 @@ impl MerkleTree {
             let mut calculated_start_positions: HashMap<u32,(f32,f32)> = HashMap::new();
     
             if let Some(nodes) = self.nodes.get_mut(&current_level) {
-                for (i, node) in nodes.iter_mut().enumerate() {
+                for (_, node) in nodes.iter_mut().enumerate() {
                     let mut parent_position = if current_level == self.levels {
                         root_point 
                     }  else {
@@ -169,6 +170,8 @@ impl MerkleTree {
                     println!("Node: {:?}", node);
                     println!("Length: {:?}", length);
                     println!("Angle: {:?}", angle);
+                    println!("Node level: {:?} and end position {:?}", node.level, node.end_position);
+
     
                     // Store the parent node position
                     node.position = parent_position;
@@ -225,7 +228,8 @@ impl MerkleTree {
                     index: i,
                     position: (start_point.0, start_point.1 + size_y + 30.0),
                     start_position: (start_point.0, start_point.1 + size_y + 30.0),
-                    end_position: (start_point.0, start_point.1 + size_y + 30.0)
+                    end_position: (start_point.0, start_point.1 + size_y + 30.0),
+                    is_hash: false
                 };
                 // Then draw a node with the word in it
                 Self::draw_node(&mut commands, &word_node, self.size, handle,false);
@@ -344,7 +348,8 @@ impl Default for Node {
             index: 0,
             position: (0.0, 0.0),
             start_position: (0.0, 0.0),
-            end_position: (0.0, 0.0)
+            end_position: (0.0, 0.0),
+            is_hash: true
         }
     }
 }

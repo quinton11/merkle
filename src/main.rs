@@ -29,6 +29,7 @@ struct GameState{
     pub previous_text: String,
     pub handle: Handle<Font>,
     pub toggle_input: bool,
+    pub mouse_position: (f32, f32),
 }
 
 impl Default for GameState {
@@ -39,6 +40,7 @@ impl Default for GameState {
             previous_text: "".to_string(),
             handle: Handle::default(),
             toggle_input: true,
+            mouse_position: (0.0, 0.0),
         }
     }
 }
@@ -93,6 +95,7 @@ fn start_up(mut commands: Commands, asset_server: Res<AssetServer>, mut state: R
     })
     .insert(TextBarTextMarker);
 }
+
 
 // add system to track changes in button state based on text input
 fn check_keyboards(mut state: ResMut<GameState>, input: Res<ButtonInput<KeyCode>>, commands: Commands){
@@ -178,35 +181,86 @@ fn check_keyboards(mut state: ResMut<GameState>, input: Res<ButtonInput<KeyCode>
 
 fn update_loop_text(
     state: ResMut<GameState>, 
-    mut query: Query<(&mut Transform, &mut Text), With<TextBarTextMarker>>  // Only target entities with `TextBarTextMarker`
+    mut query: Query<(&mut Transform, &mut Text), With<TextBarTextMarker>> 
 ) {
     for (_transform, mut text) in query.iter_mut() {
         if state.toggle_input {
-            // Update the text and color when toggle_input is true
-            text.sections[0].value = state.current_text.clone(); // Update text content
-            text.sections[0].style.color = Color::WHITE;         // Set text color to white
+            text.sections[0].value = state.current_text.clone(); 
+            text.sections[0].style.color = Color::WHITE;       
         } else {
-            // Update the text and color when toggle_input is false
-            text.sections[0].value = state.display_text.clone(); // Update text content
-            text.sections[0].style.color = Color::BLACK;         // Set text color to black
+            text.sections[0].value = state.display_text.clone();
+            text.sections[0].style.color = Color::BLACK;      
         }
     }
 }
 
 
 fn update_loop_tree(
-    state: Res<GameState>, 
-    mut query: Query<(Entity, &Transform), Or<(With<tree::Node>, With<tree::BranchMarker>, With<tree::NodeTextMarker>)>>,
+    mut state: ResMut<GameState>,
+    q_windows: Query<&Window, With<PrimaryWindow>>,
+    mut query: Query<(Entity, &Transform, Option<&mut Sprite>, Option<&tree::Node>), Or<(With<tree::Node>, With<tree::BranchMarker>, With<tree::NodeTextMarker>)>>, // Add optional Sprite
     mut commands: Commands,
+    q_camera: Query<(&Camera, &GlobalTransform)>,
 ) {
-    if !state.toggle_input {
-        return;
+    if state.toggle_input {
+        for (entity, _transform, _sprite, _node) in query.iter_mut() {
+            commands.entity(entity).despawn();
+        }
     }
 
-    for (entity, _transform) in query.iter_mut() {
-        commands.entity(entity).despawn();
+    if let Some(position) = q_windows.single().cursor_position() {
+        let (camera, camera_transform) = q_camera.single();
+
+        let window_size = Vec2::new(q_windows.single().width() as f32, q_windows.single().height() as f32);
+
+        // Convert screen position (origin is top-left) to normalized device coordinates (NDC) (-1 to +1 range)
+        let mut ndc = (position / window_size) * 2.0 - Vec2::ONE;
+
+        ndc.y = -ndc.y;
+
+        //  NDC to world space coordinates
+        if let Some(world_position) = camera.ndc_to_world(camera_transform, ndc.extend(-1.0)) {
+            state.mouse_position = (world_position.x, world_position.y);
+        }
+    }
+    //println!("Before entity check, Mouse Position: {:?}", state.mouse_position );
+
+
+    // Loop through node entities and check if the mouse is within the node bounds
+    for (_entity, transform,  sprite_option, node_option) in query.iter_mut() {
+        if let Some(node) = node_option {
+            if let Some(mut sprite) = sprite_option {
+
+                if node.is_hash{
+                    continue;
+                }
+                let node_position = transform.translation;
+                let node_size = transform.scale;
+
+                let tolerance = 5.0;
+                let half_width = (node_size.x / 2.0) + tolerance;
+                let half_height = (node_size.y / 2.0) + tolerance;
+
+                let within_x_bounds = state.mouse_position.0 >= node_position.x - half_width &&
+                state.mouse_position.0 <= node_position.x + half_width;
+                let within_y_bounds = state.mouse_position.1 >= node_position.y - half_height &&
+                state.mouse_position.1 <= node_position.y + half_height;
+
+                if within_x_bounds && within_y_bounds {
+                    println!("Mouse is hovering over node with text: {} at position: {:?}", node.hash,node_position);
+                    sprite.color = Color::srgb(0.8, 0.8, 0.2);
+                }
+                else {
+                    sprite.color = Color::BLACK;
+                }
+            } else {
+                println!("Entity without a sprite, skipping bounds check");
+            }
+        }
     }
 }
+
+
 
 fn sprite_update(state: ResMut<GameState>, mut query: Query<&mut Sprite, With<TextBarMarker>>, window_query: Query<&Window, With<PrimaryWindow>>){
     let window = window_query.iter().next().unwrap();
