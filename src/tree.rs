@@ -13,7 +13,7 @@ pub struct Node {
     pub parent_index: (u32, u32),
     pub index: usize,
     pub position: (f32, f32),
-    pub start_position: (f32, f32),    // Start point of the node (for the line to the parent)
+    pub start_position: (f32, f32), 
     pub end_position: (f32, f32),  
     pub is_hash: bool
 }
@@ -22,7 +22,49 @@ pub struct Node {
 pub struct BranchMarker;
 
 #[derive(Component)]
-pub struct NodeTextMarker;
+pub struct NodeTextMarker{
+    pub node_index: usize,
+    pub node_level: u32
+}
+
+
+#[derive(Clone)]
+#[derive(Debug)]
+pub struct InclusionProof {
+    pub proof: Vec<HashMap<u32, String>>,
+    pub is_valid: bool,
+    pub proof_link: Vec<HashMap<u32, u32>>
+}
+
+impl Default for InclusionProof {
+    fn default() -> Self {
+        InclusionProof{
+            proof: Vec::new(),
+            is_valid: false,
+            proof_link: Vec::new()
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct WordToProve {
+    pub word: String,
+    pub index: usize,
+    pub hash: String,
+    pub display_hash: String
+}
+
+impl Default for WordToProve {
+    fn default() -> Self {
+        WordToProve{
+            word: "".to_string(),
+            index: 0,
+            hash: "".to_string(),
+            display_hash: "".to_string()
+        }
+    }
+}
+
 
 #[derive(Debug)]
 pub struct MerkleTree{
@@ -30,8 +72,9 @@ pub struct MerkleTree{
     pub nodes: HashMap<u32,Vec<Node>>,
     pub words: Vec<String>,
     pub levels: u32,
-    pub size: (f32, f32)
-
+    pub size: (f32, f32),
+    pub proof: Option<InclusionProof>,
+    pub word_to_prove: Option<WordToProve>
 }
 
 impl MerkleTree {
@@ -60,8 +103,11 @@ impl MerkleTree {
             nodes: nodes_map,
             words: words.clone(),
             levels: level,
-            size: (150.0, 50.0)
+            size: (150.0, 50.0),
+            proof: None,
+            word_to_prove: None
         };
+        // instead of clone what can we do?
     }
 
     
@@ -239,7 +285,7 @@ impl MerkleTree {
         //println!("Nodes: {:?}", self.nodes);
     }
 
-    fn format_hash(hash: &str, first_len: usize, last_len: usize, dots: &str) -> String {
+    pub fn format_hash(hash: &str, first_len: usize, last_len: usize, dots: &str) -> String {
         if hash.len() <= first_len + last_len {
             return hash.to_string();
         }
@@ -322,8 +368,134 @@ impl MerkleTree {
             transform: Transform::from_translation(Vec3::new(x, y, 10.0)),
             ..Default::default()
         })
-        .insert(NodeTextMarker); 
+        .insert(NodeTextMarker{node_index: node.index, node_level: node.level}); 
     }
+
+
+    pub fn inclusion_proof(&mut self, word_index: usize) {
+        let word_node = self.nodes.get(&1).unwrap().get(word_index).unwrap();
+    
+        let mut proof = InclusionProof::default();
+        let mut current_node = word_node.clone();
+        
+        println!("Inclusion Proof for word index: {:?}", word_index);
+        println!("Current Node: {:?}", current_node);
+    
+        for level in 1..self.levels {
+            let sibling_index = if level == 1 {
+                let sibling_index = if current_node.index % 2 == 0 {
+                    current_node.index + 1
+                } else {
+                    current_node.index - 1
+                };
+    
+                let child_index = current_node.index / 2;
+                println!("Level 1: Moving up to child node at index {} in level 2", child_index);
+    
+                current_node = self.nodes.get(&(level + 1)).unwrap().get(child_index).unwrap().clone();
+    
+                sibling_index
+            } else {
+                let child_index = current_node.index / 2;
+    
+                println!("Level: {}, Child Index: {}", level, child_index);
+    
+                let sibling_index = if current_node.index % 2 == 0 {
+                    current_node.index + 1
+                } else {
+                    current_node.index - 1
+                };
+    
+                current_node = self.nodes.get(&(level + 1)).unwrap().get(child_index).unwrap().clone();
+    
+                sibling_index
+            };
+    
+            println!("Level: {:?}, Sibling Index: {:?}", level, sibling_index);
+    
+            if let Some(sibling_node) = self.nodes.get(&level).and_then(|level_nodes| level_nodes.get(sibling_index as usize)) {
+                println!("Sibling Node: {:?}", sibling_node);
+    
+                let mut proof_map = HashMap::new();
+                let mut proof_link_map = HashMap::new();
+                proof_map.insert(sibling_node.index as u32, sibling_node.hash.clone());
+                proof_link_map.insert(sibling_node.level, sibling_node.index as u32);
+
+                proof.proof.push(proof_map);
+                proof.proof_link.push(proof_link_map);
+            } else {
+                println!("Error: Sibling node at level {} with index {} does not exist!", level, sibling_index);
+                return;
+            }
+        }
+    
+        self.proof = Some(proof);
+        println!("Generated Proof: {:?}", self.proof);
+
+        let valid = self.validate_inclusion_proof(word_index);
+
+        if valid {
+            println!("Proof is valid!");
+        } else {
+            println!("Proof is invalid!");
+        }
+
+    }
+
+
+    pub fn validate_inclusion_proof(&self, word_index: usize) -> bool {
+        let word_node = self.nodes.get(&1).unwrap().get(word_index).unwrap();
+        let mut hash = word_node.hash.clone();
+        if self.word_to_prove.is_some() {
+            let word_to_prove = self.word_to_prove.as_ref().unwrap();
+            if word_to_prove.index == word_index {
+                hash = word_to_prove.hash.clone();
+            }
+        }
+    
+        // Get the stored proof
+        if let Some(proof) = &self.proof {
+            let mut current_hash = hash;
+            let mut current_node_index = word_node.index;
+            println!("Current node index: {:?}", current_node_index);
+    
+            // Traverse through the proof and recompute the hash up to the root
+            for level in 1..self.levels {
+                let proof_map = proof.proof.get((level - 1) as usize).unwrap();
+                let sibling_hash = proof_map.values().next().unwrap();
+    
+                let proof_link_map = proof.proof_link.get((level - 1) as usize).unwrap();
+                let sibling_index = *proof_link_map.get(&level).unwrap() as usize;
+    
+                current_node_index = if sibling_index % 2 == 0 {
+                    sibling_index + 1
+                } else {
+                    sibling_index - 1
+                };
+    
+                // Combine hashes in the correct order
+                if current_node_index % 2 == 0 {
+                    current_hash = hasher::hash_combination(&current_hash, sibling_hash);
+                } else {
+                    current_hash = hasher::hash_combination(sibling_hash, &current_hash);
+                }
+                // println!("Sibling Hash: {:?}", sibling_hash);
+                // println!("Computed Hash at Level {}: {:?}", level, current_hash);
+            }
+    
+            // Compare the computed hash with the root hash of the tree
+            let root_hash = self.nodes.get(&self.levels).unwrap().get(0).unwrap().hash.clone();
+            // println!("Computed Root Hash: {:?}", current_hash);
+            // println!("Actual Root Hash: {:?}", root_hash);
+    
+            return current_hash == root_hash;
+        }
+    
+        println!("No proof found!");
+        false
+    }
+
+    
     
 }
 
@@ -334,7 +506,9 @@ impl Default for MerkleTree {
             nodes: HashMap::new(),
             words: Vec::new(),
             levels: 3,
-            size: (0.0,0.0)
+            size: (0.0,0.0),
+            proof: None,
+            word_to_prove: None
         }
     }
 }
