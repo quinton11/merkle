@@ -453,6 +453,8 @@ fn check_keyboards(mut state: ResMut<GameState>, input: Res<ButtonInput<KeyCode>
                     if let Some(word) = state.tree.words.get_mut(index) {
                         *word = new_word.clone();
                     }
+
+                    let words = state.tree.words.clone();
                     
 
                     state.current_text = words.join(" ");
@@ -464,6 +466,7 @@ fn check_keyboards(mut state: ResMut<GameState>, input: Res<ButtonInput<KeyCode>
 
                     state.mode = MerkleMode::BuildTree;
                     state.toggle_input = false;
+                    println!("Tree: {:?}", state.tree);
                 }
             },
             MerkleMode::InclusionProof => {
